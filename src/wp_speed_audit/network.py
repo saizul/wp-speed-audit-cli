@@ -31,7 +31,9 @@ class PageFetch:
     total_ms: List[float] = field(default_factory=list)
 
 
-def fetch_page(url: str, samples: int = 3, timeout: float = 20.0) -> PageFetch:
+def fetch_page(
+    url: str, samples: int = 3, timeout: float = 20.0, user_agent: str = USER_AGENT
+) -> PageFetch:
     """GET ``url`` ``samples`` times on fresh connections and record timings.
 
     TTFB is the time until response headers are available (redirects, DNS, TCP
@@ -45,7 +47,7 @@ def fetch_page(url: str, samples: int = 3, timeout: float = 20.0) -> PageFetch:
     try:
         for _ in range(samples):
             with requests.Session() as session:
-                session.headers.update({"User-Agent": USER_AGENT, "Accept-Encoding": "gzip, deflate"})
+                session.headers.update({"User-Agent": user_agent, "Accept-Encoding": "gzip, deflate"})
                 start = time.perf_counter()
                 response = session.get(url, stream=True, timeout=timeout)
                 ttfb.append((time.perf_counter() - start) * 1000)
@@ -68,12 +70,12 @@ def fetch_page(url: str, samples: int = 3, timeout: float = 20.0) -> PageFetch:
     )
 
 
-def supports_brotli(url: str, timeout: float = 20.0) -> bool:
+def supports_brotli(url: str, timeout: float = 20.0, user_agent: str = USER_AGENT) -> bool:
     """Probe whether the server answers ``Accept-Encoding: br`` with Brotli."""
     try:
         with requests.get(
             url,
-            headers={"User-Agent": USER_AGENT, "Accept-Encoding": "br"},
+            headers={"User-Agent": user_agent, "Accept-Encoding": "br"},
             stream=True,
             timeout=timeout,
         ) as response:
@@ -82,10 +84,10 @@ def supports_brotli(url: str, timeout: float = 20.0) -> bool:
         return False
 
 
-def _head_size(url: str, timeout: float) -> Optional[int]:
+def _head_size(url: str, timeout: float, user_agent: str = USER_AGENT) -> Optional[int]:
     try:
         response = requests.head(
-            url, headers={"User-Agent": USER_AGENT}, allow_redirects=True, timeout=timeout
+            url, headers={"User-Agent": user_agent}, allow_redirects=True, timeout=timeout
         )
     except requests.RequestException:
         return None
@@ -93,9 +95,11 @@ def _head_size(url: str, timeout: float) -> Optional[int]:
     return int(length) if length.isdigit() else None
 
 
-def head_sizes(urls: List[str], timeout: float = 10.0, workers: int = 8) -> Dict[str, Optional[int]]:
+def head_sizes(
+    urls: List[str], timeout: float = 10.0, workers: int = 8, user_agent: str = USER_AGENT
+) -> Dict[str, Optional[int]]:
     """Return ``Content-Length`` per URL via concurrent HEAD requests (None if unknown)."""
     if not urls:
         return {}
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        return dict(zip(urls, pool.map(lambda u: _head_size(u, timeout), urls)))
+        return dict(zip(urls, pool.map(lambda u: _head_size(u, timeout, user_agent), urls)))

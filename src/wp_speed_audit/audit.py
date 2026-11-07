@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from .analyzer import PageAnalysis, analyze_html
 from .headers import CacheInfo, detect_cache, detect_cdn
-from .network import fetch_page, head_sizes, supports_brotli
+from .network import USER_AGENT, fetch_page, head_sizes, supports_brotli
 from .recommend import Recommendation, build_recommendations
 
 
@@ -43,14 +43,15 @@ def run_audit(
     timeout: float = 20.0,
     max_images: int = 40,
     check_images: bool = True,
+    user_agent: str = USER_AGENT,
 ) -> AuditResult:
-    fetched = fetch_page(url, samples=samples, timeout=timeout)
+    fetched = fetch_page(url, samples=samples, timeout=timeout, user_agent=user_agent)
     headers = fetched.headers
     page = analyze_html(fetched.html, fetched.final_url)
 
     if check_images and page.images:
         checked = page.images[:max_images]
-        sizes = head_sizes([img.url for img in checked], timeout=min(timeout, 10.0))
+        sizes = head_sizes([img.url for img in checked], timeout=min(timeout, 10.0), user_agent=user_agent)
         for img in checked:
             img.size_bytes = sizes.get(img.url)
 
@@ -66,7 +67,7 @@ def run_audit(
         http_version=fetched.http_version,
         h3_advertised="h3" in headers.get("alt-svc", ""),
         compression=headers.get("content-encoding") or None,
-        brotli=supports_brotli(fetched.final_url, timeout),
+        brotli=supports_brotli(fetched.final_url, timeout, user_agent),
         html_bytes=len(fetched.html.encode("utf-8")),
         server=headers.get("server"),
         cdn=detect_cdn(headers),

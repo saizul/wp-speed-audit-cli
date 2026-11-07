@@ -34,13 +34,15 @@ wp-speed-audit https://example.com/
 wp-speed-audit example.com/blog/ -n 5            # 5 timing samples
 wp-speed-audit example.com --no-image-check      # skip image HEAD requests
 wp-speed-audit example.com --json > audit.json   # machine-readable
+wp-speed-audit example.com --user-agent "Mozilla/5.0" --timeout 30   # custom UA and timeout
 python -m wp_speed_audit example.com             # without the console script
 ```
 
 | Option | Meaning |
 | --- | --- |
 | `-n, --samples N` | Timing samples; the median is reported (default 3) |
-| `--timeout S` | Per-request timeout in seconds (default 20) |
+| `--timeout S` | Per-request timeout in seconds, must be > 0 (default 20) |
+| `--user-agent UA` | `User-Agent` header for every request (page, Brotli probe, image `HEAD`s). Useful when a WAF blocks the default |
 | `--max-images N` | Maximum images to `HEAD`-check (default 40) |
 | `--no-image-check` | Do not request image sizes |
 | `--json` | Print JSON instead of tables |
