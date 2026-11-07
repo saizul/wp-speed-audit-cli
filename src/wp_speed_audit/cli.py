@@ -13,7 +13,7 @@ from rich.console import Console
 from . import __version__
 from .audit import run_audit
 from .network import USER_AGENT, AuditError
-from .report import render
+from .report import render, render_markdown
 
 
 def normalize_url(url: str) -> str:
@@ -46,7 +46,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--user-agent", default=USER_AGENT, metavar="UA", help="User-Agent header sent with every request (default: wp-speed-audit/<version>)")
     parser.add_argument("--max-images", type=_positive_int, default=40, help="max images to HEAD-check for size (default: 40)")
     parser.add_argument("--no-image-check", action="store_true", help="skip HEAD requests for image sizes")
-    parser.add_argument("--json", action="store_true", help="print machine-readable JSON instead of tables")
+    fmt = parser.add_mutually_exclusive_group()
+    fmt.add_argument("--json", action="store_true", help="print machine-readable JSON instead of tables")
+    fmt.add_argument("--markdown", action="store_true", help="print the report as Markdown tables (paste into a GitHub issue)")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return parser
 
@@ -56,7 +58,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     url = normalize_url(args.url)
     status_console = Console(stderr=True)
     try:
-        spinner = contextlib.nullcontext() if args.json else status_console.status("Auditing...")
+        spinner = contextlib.nullcontext() if args.json or args.markdown else status_console.status("Auditing...")
         with spinner:
             result = run_audit(
                 url,
@@ -72,6 +74,8 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.json:
         print(json.dumps(result.to_dict(), indent=2))
+    elif args.markdown:
+        print(render_markdown(result), end="")
     else:
         render(result)
     return 0

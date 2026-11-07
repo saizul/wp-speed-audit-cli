@@ -35,6 +35,7 @@ wp-speed-audit example.com/blog/ -n 5            # 5 timing samples
 wp-speed-audit example.com --no-image-check      # skip image HEAD requests
 wp-speed-audit example.com --json > audit.json   # machine-readable
 wp-speed-audit example.com --user-agent "Mozilla/5.0" --timeout 30   # custom UA and timeout
+wp-speed-audit example.com --markdown > audit.md # paste into a GitHub issue
 python -m wp_speed_audit example.com             # without the console script
 ```
 
@@ -46,6 +47,7 @@ python -m wp_speed_audit example.com             # without the console script
 | `--max-images N` | Maximum images to `HEAD`-check (default 40) |
 | `--no-image-check` | Do not request image sizes |
 | `--json` | Print JSON instead of tables |
+| `--markdown` | Print the report as Markdown tables, ready to paste into a GitHub issue (cannot be combined with `--json`) |
 
 Exit codes: `0` success, `2` the page could not be fetched.
 

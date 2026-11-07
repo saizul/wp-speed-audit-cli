@@ -88,3 +88,68 @@ def render(result: AuditResult, console: Optional[Console] = None) -> None:
     for table in tables:
         console.print(table)
         console.print()
+
+
+def _md(text: object) -> str:
+    """Escape a value for use inside a Markdown table cell."""
+    return str(text).replace("\\", "\\\\").replace("|", "\\|").replace("\n", " ")
+
+
+def _md_table(headers: List[str], rows: List[List[object]]) -> str:
+    lines = ["| " + " | ".join(headers) + " |", "| " + " | ".join("---" for _ in headers) + " |"]
+    lines += ["| " + " | ".join(_md(c) for c in row) + " |" for row in rows]
+    return "\n".join(lines)
+
+
+def render_markdown(result: AuditResult) -> str:
+    """Return the audit as GitHub-flavoured Markdown, ready to paste into an issue."""
+    page = result.page
+    cache = result.cache
+    compression = result.compression or "none"
+    if result.brotli:
+        compression += " (Brotli supported)"
+    cache_text = cache.verdict.upper()
+    if cache.headers:
+        cache_text += " - " + ", ".join(f"{k}: {v}" for k, v in cache.headers.items())
+    wordpress = "not detected"
+    if page.is_wordpress:
+        wordpress = "yes" + (f" (v{page.wp_version})" if page.wp_version else "")
+    known = [i.size_bytes for i in page.images if i.size_bytes is not None]
+    formats = ", ".join(f"{fmt}: {n}" for fmt, n in format_counts(page.images).items()) or "-"
+
+    overview = [
+        ["Status", f"{result.status_code} ({result.redirects} redirect(s))"],
+        ["TTFB (median)", f"{result.ttfb_median_ms:.0f} ms"],
+        ["Total time (median)", f"{result.total_median_ms:.0f} ms"],
+        ["HTTP version", result.http_version + (" (h3 advertised)" if result.h3_advertised else "")],
+        ["Compression", compression],
+        ["Page cache", cache_text],
+        ["Cache-Control", cache.cache_control or "-"],
+        ["CDN", ", ".join(result.cdn) or "none detected"],
+        ["Server", result.server or "-"],
+        ["HTML size", _kb(result.html_bytes)],
+        ["WordPress", wordpress],
+        ["Theme", page.theme or "-"],
+        ["Plugins", ", ".join(page.plugins) or "-"],
+    ]
+    assets = [
+        ["Images", f"{len(page.images)} ({formats}); known size {_kb(sum(known))}"],
+        ["Render-blocking CSS", len(page.render_blocking_css)],
+        ["Render-blocking JS", len(page.render_blocking_js)],
+        ["3rd-party script hosts", ", ".join(page.third_party_script_hosts) or "-"],
+        ["3rd-party style hosts", ", ".join(page.third_party_style_hosts) or "-"],
+    ]
+    recs = [[r.priority.upper(), r.area, r.message] for r in result.recommendations]
+    if not recs:
+        recs = [["-", "-", "Nothing to flag."]]
+
+    parts = [
+        f"## WordPress speed audit: {_md(result.final_url or result.url)}",
+        "### Overview",
+        _md_table(["Metric", "Value"], overview),
+        "### Assets",
+        _md_table(["Item", "Details"], assets),
+        "### Recommendations",
+        _md_table(["Priority", "Area", "Recommendation"], recs),
+    ]
+    return "\n\n".join(parts) + "\n"
