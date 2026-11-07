@@ -1,5 +1,7 @@
 # wp-speed-audit
 
+[![CI](https://github.com/saizul/wp-speed-audit-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/saizul/wp-speed-audit-cli/actions/workflows/ci.yml) ![Python](https://img.shields.io/badge/python-3.10%2B-blue?logo=python&logoColor=white) ![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)
+
 A small command-line tool that audits a WordPress page **from the outside** (no login, no plugin install) and tells you what to fix first.
 
 It measures the things that usually decide whether a WordPress site feels fast:
