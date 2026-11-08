@@ -84,3 +84,42 @@ def test_cli_reports_fetch_errors(monkeypatch, capsys):
 def test_normalize_url():
     assert cli.normalize_url("example.com") == "https://example.com"
     assert cli.normalize_url(" http://example.com ") == "http://example.com"
+
+
+def _budget_result() -> AuditResult:
+    result = _slow_result()
+    result.html_bytes = 200 * 1024
+    return result
+
+
+def test_check_thresholds_flags_only_exceeded_budgets():
+    result = _budget_result()  # ttfb 1.2s, total 1.5s, html 200 KB
+    assert cli.check_thresholds(result, None, None, None) == []
+    assert cli.check_thresholds(result, 1.5, 2.0, 250) == []
+    failures = cli.check_thresholds(result, 0.8, 2.0, 100)
+    assert len(failures) == 2
+    assert "--max-ttfb" in failures[0]
+    assert "--max-html-kb" in failures[1]
+
+
+def test_cli_exits_1_when_budget_exceeded(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "run_audit", lambda *a, **k: _budget_result())
+    assert cli.main(["demo.example", "--json", "--max-ttfb", "0.8"]) == 1
+    captured = capsys.readouterr()
+    assert "budget exceeded" in captured.err
+    assert json.loads(captured.out)["ttfb_median_ms"] == 1200.0  # report still printed
+
+
+def test_cli_exits_0_when_within_budget(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "run_audit", lambda *a, **k: _budget_result())
+    assert cli.main(["demo.example", "--json", "--max-ttfb", "2", "--max-html-kb", "300"]) == 0
+    assert capsys.readouterr().err == ""
+
+
+def test_cli_rejects_non_positive_budget(capsys):
+    try:
+        cli.main(["demo.example", "--max-ttfb", "0"])
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:
+        raise AssertionError("expected SystemExit")
