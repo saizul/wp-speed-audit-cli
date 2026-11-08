@@ -48,8 +48,16 @@ python -m wp_speed_audit example.com             # without the console script
 | `--no-image-check` | Do not request image sizes |
 | `--json` | Print JSON instead of tables |
 | `--markdown` | Print the report as Markdown tables, ready to paste into a GitHub issue (cannot be combined with `--json`) |
+| `--max-ttfb SECONDS` | CI budget: exit `1` if the median time to first byte is above this |
+| `--max-total SECONDS` | CI budget: exit `1` if the median total download time is above this |
+| `--max-html-kb KB` | CI budget: exit `1` if the HTML document is larger than this (1 KB = 1024 bytes) |
 
-Exit codes: `0` success, `2` the page could not be fetched.
+Exit codes: `0` success (and all budgets met), `1` a `--max-*` budget was exceeded (each violation is printed to stderr as `budget exceeded: ...`; the report is still printed), `2` the page could not be fetched.
+
+```bash
+# fail a CI job when the homepage is slower than 800 ms TTFB or its HTML exceeds 150 KB
+wp-speed-audit example.com --json --max-ttfb 0.8 --max-html-kb 150 > audit.json
+```
 
 ## Sample output
 
