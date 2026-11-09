@@ -136,3 +136,13 @@ Layout: `analyzer.py` (HTML parsing), `headers.py` (cache/CDN), `network.py` (al
 ## License
 
 MIT, see [LICENSE](LICENSE). Built by [Saizul Amin](https://saizul.com).
+
+## Run with Docker
+
+A multi-arch image (amd64, arm64) is published to GitHub Container Registry on every change to `main`:
+
+```bash
+docker run --rm ghcr.io/saizul/wp-speed-audit-cli:latest https://example.com
+# write reports to the current folder
+docker run --rm -v "$PWD:/work" ghcr.io/saizul/wp-speed-audit-cli:latest --help
+```
