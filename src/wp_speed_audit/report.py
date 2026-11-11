@@ -11,6 +11,7 @@ from .analyzer import format_counts
 from .audit import AuditResult
 
 _PRIORITY_STYLE = {"high": "bold red", "medium": "yellow", "low": "cyan"}
+_RATING_STYLE = {"good": "green", "needs improvement": "yellow", "poor": "bold red"}
 
 
 def _kb(size: Optional[int]) -> str:
@@ -82,12 +83,57 @@ def _recommendations(result: AuditResult) -> Table:
     return table
 
 
+def _field_rows(result: AuditResult) -> List[List[str]]:
+    """Rows of the field-data table: metric, p75, rating, share of good loads."""
+    data = result.field_data
+    if data is None or data.error:
+        return []
+    rows = []
+    for metric in data.metrics:
+        share = "-" if metric.good_share is None else f"{metric.good_share:.0f}%"
+        value = metric.display
+        if metric.key == "ttfb":
+            value += f"  (lab: {result.ttfb_median_ms:.0f} ms)"
+        rows.append([metric.label, value, metric.rating, share])
+    return rows
+
+
+def _field_caption(result: AuditResult) -> str:
+    data = result.field_data
+    if data is None:
+        return ""
+    if data.error:
+        return f"Field data unavailable: {data.error}"
+    parts = [f"{'page' if data.scope == 'url' else 'origin'}-level data for {data.target}", f"devices: {data.form_factor}"]
+    if data.period_start and data.period_end:
+        parts.append(f"{data.period_start} to {data.period_end}")
+    verdict = {"passed": "PASSED", "failed": "FAILED"}.get(data.assessment or "", "not enough data")
+    return f"Core Web Vitals assessment: {verdict} ({'; '.join(parts)})"
+
+
+def _field(result: AuditResult) -> Table:
+    table = Table(title="Field data (Chrome UX Report, real users, p75)", show_header=True, header_style="bold")
+    table.add_column("Metric")
+    table.add_column("p75", overflow="fold")
+    table.add_column("Rating")
+    table.add_column("Good loads")
+    for label, value, rating, share in _field_rows(result):
+        table.add_row(label, value, f"[{_RATING_STYLE[rating]}]{rating}[/]", share)
+    return table
+
+
 def render(result: AuditResult, console: Optional[Console] = None) -> None:
     console = console or Console()
-    tables: List[Table] = [_overview(result), _assets(result), _recommendations(result)]
-    for table in tables:
+    for table in (_overview(result), _assets(result)):
         console.print(table)
         console.print()
+    if result.field_data is not None:
+        if _field_rows(result):
+            console.print(_field(result))
+        console.print(_field_caption(result), markup=False, highlight=False, soft_wrap=True)
+        console.print()
+    console.print(_recommendations(result))
+    console.print()
 
 
 def _md(text: object) -> str:
@@ -149,6 +195,13 @@ def render_markdown(result: AuditResult) -> str:
         _md_table(["Metric", "Value"], overview),
         "### Assets",
         _md_table(["Item", "Details"], assets),
+    ]
+    if result.field_data is not None:
+        parts.append("### Field data (Chrome UX Report)")
+        if _field_rows(result):
+            parts.append(_md_table(["Metric", "p75", "Rating", "Good loads"], _field_rows(result)))
+        parts.append(_md(_field_caption(result)))
+    parts += [
         "### Recommendations",
         _md_table(["Priority", "Area", "Recommendation"], recs),
     ]

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import os
 import sys
 from typing import List, Optional
 
@@ -12,6 +13,7 @@ from rich.console import Console
 
 from . import __version__
 from .audit import run_audit
+from .crux import API_KEY_ENV, FORM_FACTORS
 from .network import USER_AGENT, AuditError
 from .report import render, render_markdown
 
@@ -58,6 +60,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--user-agent", default=USER_AGENT, metavar="UA", help="User-Agent header sent with every request (default: wp-speed-audit/<version>)")
     parser.add_argument("--max-images", type=_positive_int, default=40, help="max images to HEAD-check for size (default: 40)")
     parser.add_argument("--no-image-check", action="store_true", help="skip HEAD requests for image sizes")
+    crux = parser.add_argument_group("field data", "Core Web Vitals of real Chrome users from the CrUX API")
+    crux.add_argument("--crux", action="store_true", help=f"add p75 LCP, INP and CLS from the Chrome UX Report API (API key is read from ${API_KEY_ENV})")
+    crux.add_argument("--crux-form-factor", choices=FORM_FACTORS, default="all", help="device type for --crux (default: all)")
     budget = parser.add_argument_group("CI budgets", "exit with status 1 when a budget is exceeded")
     budget.add_argument("--max-ttfb", type=_positive_float, metavar="SECONDS", help="fail if the median time to first byte is above this many seconds")
     budget.add_argument("--max-total", type=_positive_float, metavar="SECONDS", help="fail if the median total download time is above this many seconds")
@@ -73,6 +78,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     url = normalize_url(args.url)
     status_console = Console(stderr=True)
+    crux_key = None
+    if args.crux:
+        crux_key = os.environ.get(API_KEY_ENV, "").strip()
+        if not crux_key:
+            print(f"error: --crux needs a Chrome UX Report API key in the {API_KEY_ENV} environment variable", file=sys.stderr)
+            return 2
     try:
         spinner = contextlib.nullcontext() if args.json or args.markdown else status_console.status("Auditing...")
         with spinner:
@@ -83,10 +94,15 @@ def main(argv: Optional[List[str]] = None) -> int:
                 max_images=args.max_images,
                 check_images=not args.no_image_check,
                 user_agent=args.user_agent,
+                crux_api_key=crux_key,
+                crux_form_factor=args.crux_form_factor,
             )
     except AuditError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+
+    if result.field_data is not None and result.field_data.error:
+        print(f"warning: {result.field_data.error}", file=sys.stderr)
 
     if args.json:
         print(json.dumps(result.to_dict(), indent=2))

@@ -21,6 +21,13 @@ MANY_THIRD_PARTY_HOSTS = 5
 MANY_PLUGINS = 15
 
 
+_FIELD_ADVICE = {
+    "lcp": "Target 2.5 s or less: speed up the server response, preload and compress the hero image, and remove render-blocking assets.",
+    "inp": "Target 200 ms or less: cut main-thread JavaScript (page-builder add-ons, sliders, chat widgets, trackers) and delay non-critical scripts.",
+    "cls": "Target 0.1 or less: set width and height on images and embeds, reserve space for ads and banners, and preload web fonts.",
+}
+
+
 @dataclass
 class Recommendation:
     priority: str
@@ -90,6 +97,15 @@ def build_recommendations(result: "AuditResult") -> List[Recommendation]:
 
     if len(page.plugins) > MANY_PLUGINS:
         add(LOW, "WordPress", f"{len(page.plugins)} plugins load front-end assets. Audit them and deactivate what you do not need.")
+
+    field_data = getattr(result, "field_data", None)
+    if field_data is not None and not field_data.error:
+        where = "this page" if field_data.scope == "url" else "this origin"
+        for metric in field_data.metrics:
+            if metric.key not in _FIELD_ADVICE or metric.rating == "good":
+                continue
+            priority = HIGH if metric.rating == "poor" else MEDIUM
+            add(priority, "Core Web Vitals", f"Real users of {where} see a p75 {metric.label} of {metric.display} ({metric.rating}, CrUX field data). {_FIELD_ADVICE[metric.key]}")
 
     recs.sort(key=lambda r: _ORDER[r.priority])
     return recs

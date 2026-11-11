@@ -7,8 +7,9 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
 
 from .analyzer import PageAnalysis, analyze_html
+from .crux import FieldData
 from .headers import CacheInfo, detect_cache, detect_cdn
-from .network import USER_AGENT, fetch_page, head_sizes, supports_brotli
+from .network import USER_AGENT, fetch_field_data, fetch_page, head_sizes, supports_brotli
 from .recommend import Recommendation, build_recommendations
 
 
@@ -31,6 +32,7 @@ class AuditResult:
     cdn: List[str] = field(default_factory=list)
     cache: CacheInfo = field(default_factory=CacheInfo)
     page: PageAnalysis = field(default_factory=PageAnalysis)
+    field_data: Optional[FieldData] = None  # CrUX, only with --crux
     recommendations: List[Recommendation] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -44,6 +46,8 @@ def run_audit(
     max_images: int = 40,
     check_images: bool = True,
     user_agent: str = USER_AGENT,
+    crux_api_key: Optional[str] = None,
+    crux_form_factor: str = "all",
 ) -> AuditResult:
     fetched = fetch_page(url, samples=samples, timeout=timeout, user_agent=user_agent)
     headers = fetched.headers
@@ -74,5 +78,9 @@ def run_audit(
         cache=detect_cache(headers),
         page=page,
     )
+    if crux_api_key:
+        result.field_data = fetch_field_data(
+            fetched.final_url, crux_api_key, crux_form_factor, timeout=timeout, user_agent=user_agent
+        )
     result.recommendations = build_recommendations(result)
     return result
