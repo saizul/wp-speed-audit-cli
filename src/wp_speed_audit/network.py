@@ -5,13 +5,15 @@ from __future__ import annotations
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import requests
 
 from . import __version__
+from .crux import FieldData, build_query, error_message, origin_of, parse_record
 
 USER_AGENT = f"wp-speed-audit/{__version__} (+https://saizul.com)"
+CRUX_ENDPOINT = "https://chromeuxreport.googleapis.com/v1/records:queryRecord"
 _HTTP_VERSIONS = {9: "HTTP/0.9", 10: "HTTP/1.0", 11: "HTTP/1.1"}
 
 
@@ -103,3 +105,50 @@ def head_sizes(
         return {}
     with ThreadPoolExecutor(max_workers=workers) as pool:
         return dict(zip(urls, pool.map(lambda u: _head_size(u, timeout, user_agent), urls)))
+
+
+def _crux_post(body: Dict[str, Any], api_key: str, timeout: float, user_agent: str) -> "requests.Response":
+    # the key travels in a header, not the query string, so it cannot leak into logs or error messages
+    return requests.post(
+        CRUX_ENDPOINT,
+        json=body,
+        headers={"User-Agent": user_agent, "X-Goog-Api-Key": api_key},
+        timeout=timeout,
+    )
+
+
+def _json_or_none(response: "requests.Response") -> Any:
+    try:
+        return response.json()
+    except ValueError:
+        return None
+
+
+def fetch_field_data(
+    url: str,
+    api_key: str,
+    form_factor: str = "all",
+    timeout: float = 20.0,
+    user_agent: str = USER_AGENT,
+) -> FieldData:
+    """Query the CrUX API for ``url``; fall back to its origin when the page has no data.
+
+    Never raises for API or network problems: the returned :class:`FieldData`
+    carries an ``error`` instead, so a CrUX hiccup cannot break the audit.
+    """
+    attempts = [("url", url), ("origin", origin_of(url))]
+    try:
+        for scope, target in attempts:
+            response = _crux_post(build_query(target, scope, form_factor), api_key, timeout, user_agent)
+            if response.status_code == 404:
+                continue  # not enough Chrome traffic for this page/origin
+            payload = _json_or_none(response)
+            if response.status_code != 200:
+                return FieldData(form_factor=form_factor, error=error_message(response.status_code, payload))
+            return parse_record(payload, form_factor)
+    except requests.RequestException as exc:
+        return FieldData(form_factor=form_factor, error=f"could not reach the CrUX API: {type(exc).__name__}")
+    return FieldData(
+        form_factor=form_factor,
+        error="no CrUX data: neither the page nor its origin has enough Chrome traffic in the last 28 days",
+    )
