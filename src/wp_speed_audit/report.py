@@ -5,10 +5,12 @@ from __future__ import annotations
 from typing import List, Optional
 
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from .analyzer import format_counts
 from .audit import AuditResult
+from .baseline import Comparison, format_change, format_value
 
 _PRIORITY_STYLE = {"high": "bold red", "medium": "yellow", "low": "cyan"}
 _RATING_STYLE = {"good": "green", "needs improvement": "yellow", "poor": "bold red"}
@@ -122,6 +124,42 @@ def _field(result: AuditResult) -> Table:
     return table
 
 
+def _comparison_rows(comparison: Comparison) -> List[List[str]]:
+    """Rows of the baseline table: metric, before, now, change."""
+    rows = [
+        [m.label, format_value(m.before, m.unit), format_value(m.after, m.unit), format_change(m)]
+        for m in comparison.metrics
+    ]
+    if comparison.cache_before != comparison.cache_after:
+        rows.append(["Page cache", (comparison.cache_before or "-").upper(), (comparison.cache_after or "-").upper(), "changed"])
+    if comparison.plugins_added:
+        rows.append(["Plugins added", "-", ", ".join(comparison.plugins_added), f"+{len(comparison.plugins_added)}"])
+    if comparison.plugins_removed:
+        rows.append(["Plugins removed", ", ".join(comparison.plugins_removed), "-", f"-{len(comparison.plugins_removed)}"])
+    return rows
+
+
+def _comparison_notes(comparison: Comparison) -> List[str]:
+    notes = []
+    if comparison.url_changed:
+        notes.append(f"Note: the baseline was taken for a different URL ({comparison.baseline_url}).")
+    notes += [f"New: {label}" for label in comparison.new_recommendations]
+    notes += [f"Resolved: {label}" for label in comparison.resolved_recommendations]
+    return notes
+
+
+def _comparison(comparison: Comparison) -> Table:
+    table = Table(title=escape(f"Compared with baseline: {comparison.baseline_url or '-'}"), show_header=True, header_style="bold")
+    table.add_column("Metric")
+    table.add_column("Baseline", overflow="fold")
+    table.add_column("Now", overflow="fold")
+    table.add_column("Change")
+    for label, before, after, change in _comparison_rows(comparison):
+        style = "red" if change.startswith("+") else "green" if change.startswith("-") else ""
+        table.add_row(escape(label), escape(before), escape(after), f"[{style}]{escape(change)}[/]" if style else escape(change))
+    return table
+
+
 def render(result: AuditResult, console: Optional[Console] = None) -> None:
     console = console or Console()
     for table in (_overview(result), _assets(result)):
@@ -134,6 +172,11 @@ def render(result: AuditResult, console: Optional[Console] = None) -> None:
         console.print()
     console.print(_recommendations(result))
     console.print()
+    if result.comparison is not None:
+        console.print(_comparison(result.comparison))
+        for note in _comparison_notes(result.comparison):
+            console.print(note, markup=False, highlight=False, soft_wrap=True)
+        console.print()
 
 
 def _md(text: object) -> str:
@@ -205,4 +248,10 @@ def render_markdown(result: AuditResult) -> str:
         "### Recommendations",
         _md_table(["Priority", "Area", "Recommendation"], recs),
     ]
+    if result.comparison is not None:
+        parts.append(f"### Compared with baseline: {_md(result.comparison.baseline_url or '-')}")
+        parts.append(_md_table(["Metric", "Baseline", "Now", "Change"], _comparison_rows(result.comparison)))
+        notes = _comparison_notes(result.comparison)
+        if notes:
+            parts.append("\n".join(f"- {_md(note)}" for note in notes))
     return "\n\n".join(parts) + "\n"

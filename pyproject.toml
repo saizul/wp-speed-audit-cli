@@ -7,7 +7,7 @@ name = "wp-speed-audit"
 version = "0.1.0"
 description = "Audit a WordPress page's speed signals from the outside: TTFB, caching, CDN, images, render-blocking assets, plugins."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Saizul Amin" }]
