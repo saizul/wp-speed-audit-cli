@@ -13,6 +13,7 @@ from rich.console import Console
 
 from . import __version__
 from .audit import run_audit
+from .baseline import BaselineError, check_regressions, compare, load_baseline
 from .crux import API_KEY_ENV, FORM_FACTORS
 from .network import USER_AGENT, AuditError
 from .report import render, render_markdown
@@ -34,6 +35,13 @@ def _positive_float(value: str) -> float:
     number = float(value)
     if number <= 0:
         raise argparse.ArgumentTypeError("must be > 0")
+    return number
+
+
+def _non_negative_float(value: str) -> float:
+    number = float(value)
+    if not number >= 0:  # also rejects NaN
+        raise argparse.ArgumentTypeError("must be >= 0")
     return number
 
 
@@ -67,6 +75,8 @@ def build_parser() -> argparse.ArgumentParser:
     budget.add_argument("--max-ttfb", type=_positive_float, metavar="SECONDS", help="fail if the median time to first byte is above this many seconds")
     budget.add_argument("--max-total", type=_positive_float, metavar="SECONDS", help="fail if the median total download time is above this many seconds")
     budget.add_argument("--max-html-kb", type=_positive_float, metavar="KB", help="fail if the HTML document is larger than this many KB (1 KB = 1024 bytes)")
+    budget.add_argument("--baseline", metavar="FILE", help="compare with a report saved earlier with --json and show what changed")
+    budget.add_argument("--max-regression", type=_non_negative_float, metavar="PERCENT", help="with --baseline: fail if median TTFB, median total time or HTML size grew by more than this many percent")
     fmt = parser.add_mutually_exclusive_group()
     fmt.add_argument("--json", action="store_true", help="print machine-readable JSON instead of tables")
     fmt.add_argument("--markdown", action="store_true", help="print the report as Markdown tables (paste into a GitHub issue)")
@@ -79,6 +89,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     url = normalize_url(args.url)
     status_console = Console(stderr=True)
     crux_key = None
+    baseline = None
+    if args.max_regression is not None and not args.baseline:
+        print("error: --max-regression needs --baseline FILE", file=sys.stderr)
+        return 2
+    if args.baseline:
+        try:
+            baseline = load_baseline(args.baseline)
+        except BaselineError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
     if args.crux:
         crux_key = os.environ.get(API_KEY_ENV, "").strip()
         if not crux_key:
@@ -101,6 +121,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
+    if baseline is not None:
+        result.comparison = compare(baseline, result)
+        if result.comparison.url_changed:
+            print(f"warning: the baseline was taken for a different URL ({result.comparison.baseline_url})", file=sys.stderr)
+
     if result.field_data is not None and result.field_data.error:
         print(f"warning: {result.field_data.error}", file=sys.stderr)
 
@@ -112,6 +137,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         render(result)
 
     failures = check_thresholds(result, args.max_ttfb, args.max_total, args.max_html_kb)
+    if result.comparison is not None and args.max_regression is not None:
+        failures += check_regressions(result.comparison, args.max_regression)
     for message in failures:
         print(f"budget exceeded: {message}", file=sys.stderr)
     return 1 if failures else 0

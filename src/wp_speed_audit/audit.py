@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
 
 from .analyzer import PageAnalysis, analyze_html
+from .baseline import Comparison
 from .crux import FieldData
 from .headers import CacheInfo, detect_cache, detect_cdn
 from .network import USER_AGENT, fetch_field_data, fetch_page, head_sizes, supports_brotli
@@ -34,9 +35,12 @@ class AuditResult:
     page: PageAnalysis = field(default_factory=PageAnalysis)
     field_data: Optional[FieldData] = None  # CrUX, only with --crux
     recommendations: List[Recommendation] = field(default_factory=list)
+    comparison: Optional[Comparison] = None  # only with --baseline
 
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        data = asdict(self)
+        data["comparison"] = self.comparison.to_dict() if self.comparison is not None else None
+        return data
 
 
 def run_audit(

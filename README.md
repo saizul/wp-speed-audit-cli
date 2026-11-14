@@ -16,10 +16,11 @@ It measures the things that usually decide whether a WordPress site feels fast:
 - **WordPress footprint**: version, theme and plugins, read from `/wp-content/themes/<slug>/` and `/wp-content/plugins/<slug>/` paths
 - Optional **Core Web Vitals field data** (`--crux`): p75 LCP, INP and CLS of real Chrome users from the Chrome UX Report API, shown next to the lab measurements
 - A **prioritised list of recommendations** (high / medium / low)
+- **Before/after comparison** (`--baseline`): diff against an earlier `--json` report and fail CI on regressions (`--max-regression`)
 
 ## Install
 
-Requires Python 3.9+.
+Requires Python 3.10+.
 
 ```bash
 git clone <this repository>
@@ -38,6 +39,7 @@ wp-speed-audit example.com --json > audit.json   # machine-readable
 wp-speed-audit example.com --user-agent "Mozilla/5.0" --timeout 30   # custom UA and timeout
 wp-speed-audit example.com --markdown > audit.md # paste into a GitHub issue
 CRUX_API_KEY=... wp-speed-audit example.com --crux   # add real-user Core Web Vitals
+wp-speed-audit example.com --baseline before.json  # what changed since the last audit
 python -m wp_speed_audit example.com             # without the console script
 ```
 
@@ -55,12 +57,53 @@ python -m wp_speed_audit example.com             # without the console script
 | `--max-ttfb SECONDS` | CI budget: exit `1` if the median time to first byte is above this |
 | `--max-total SECONDS` | CI budget: exit `1` if the median total download time is above this |
 | `--max-html-kb KB` | CI budget: exit `1` if the HTML document is larger than this (1 KB = 1024 bytes) |
+| `--baseline FILE` | Compare with a report saved earlier with `--json` (see [Comparing with a baseline](#comparing-with-a-baseline)) |
+| `--max-regression PERCENT` | With `--baseline`: exit `1` if median TTFB, median total time or HTML size grew by more than this percentage |
 
-Exit codes: `0` success (and all budgets met), `1` a `--max-*` budget was exceeded (each violation is printed to stderr as `budget exceeded: ...`; the report is still printed), `2` the page could not be fetched, or `--crux` was given without an API key.
+Exit codes: `0` success (and all budgets met), `1` a `--max-*` budget was exceeded (each violation is printed to stderr as `budget exceeded: ...`; the report is still printed), `2` the page could not be fetched, `--crux` was given without an API key, the `--baseline` file is missing or invalid, or `--max-regression` was given without `--baseline`.
 
 ```bash
 # fail a CI job when the homepage is slower than 800 ms TTFB or its HTML exceeds 150 KB
 wp-speed-audit example.com --json --max-ttfb 0.8 --max-html-kb 150 > audit.json
+```
+
+## Comparing with a baseline
+
+Save a report before a change (a new plugin, a theme update, a hosting move), then audit again with `--baseline`:
+
+```bash
+wp-speed-audit example.com --json > before.json
+# ... deploy the change ...
+wp-speed-audit example.com --baseline before.json
+wp-speed-audit example.com --baseline before.json --markdown > diff.md
+```
+
+```text
+          Compared with baseline: https://example.com/
+┏━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┓
+┃ Metric              ┃ Baseline ┃ Now          ┃ Change           ┃
+┡━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━┩
+│ TTFB (median)       │ 310 ms   │ 520 ms       │ +210 ms (+67.7%) │
+│ Total time (median) │ 420 ms   │ 640 ms       │ +220 ms (+52.4%) │
+│ HTML size           │ 88.0 KB  │ 96.5 KB      │ +8.5 KB (+9.7%)  │
+│ Images              │ 14       │ 14           │ no change        │
+│ Render-blocking CSS │ 5        │ 7            │ +2 (+40.0%)      │
+│ Render-blocking JS  │ 1        │ 1            │ no change        │
+│ 3rd-party hosts     │ 3        │ 4            │ +1 (+33.3%)      │
+│ Plugins added       │ -        │ slider-pro   │ +1               │
+└─────────────────────┴──────────┴──────────────┴──────────────────┘
+```
+
+(Illustrative numbers.)
+
+- Compared: median TTFB and total time, HTML size, image count, render-blocking CSS/JS, third-party hosts, page-cache verdict, plugins added/removed, and recommendations that are new or resolved. Recommendations are matched by area and wording with numbers ignored, so "900 KB" vs "600 KB" is the same finding.
+- `--max-regression PERCENT` turns the comparison into a CI gate for the three timing/size metrics. To ignore network jitter, a metric only fails when it grew by more than the percentage **and** by at least 50 ms (timings) or 1 KB (HTML). Getting faster never fails. Failures are printed as `budget exceeded: ...` and combine with the `--max-*` budgets.
+- With `--json`, the diff is under `comparison` (`null` without `--baseline`): `baseline_url`, `url_changed`, `metrics` (`key`, `label`, `unit`, `before`, `after`, `delta`, `percent`), `cache_before`, `cache_after`, `plugins_added`, `plugins_removed`, `new_recommendations`, `resolved_recommendations`.
+- If the baseline was taken for a different URL, a `warning:` is printed and the comparison still runs.
+
+```bash
+# CI: fail when the page got more than 20 % slower than the committed baseline
+wp-speed-audit example.com --json --baseline perf/baseline.json --max-regression 20 > audit.json
 ```
 
 ## Field data (Core Web Vitals from CrUX)
@@ -169,7 +212,7 @@ pytest
 
 The tests parse a saved HTML fixture and synthetic header dictionaries; they never touch the network (the CrUX API is faked as well).
 
-Layout: `analyzer.py` (HTML parsing), `headers.py` (cache/CDN), `crux.py` (CrUX request/response handling), `network.py` (all HTTP), `recommend.py` (rules), `audit.py` (orchestration), `report.py` (rich output), `cli.py`.
+Layout: `analyzer.py` (HTML parsing), `headers.py` (cache/CDN), `crux.py` (CrUX request/response handling), `network.py` (all HTTP), `recommend.py` (rules), `baseline.py` (comparison with an earlier report), `audit.py` (orchestration), `report.py` (rich output), `cli.py`.
 
 ## License
 
